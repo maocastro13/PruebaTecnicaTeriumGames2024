@@ -25,6 +25,8 @@ public class HPHandler : NetworkBehaviour
     public GameObject playerModel;
     public GameObject deathGameObjectPrefab;
 
+    public bool skipSettingStartValues = false;
+
     //Other components
     HitboxRoot hitboxRoot;
     CharacterMovementHandler characterMovementHandler;
@@ -42,10 +44,11 @@ public class HPHandler : NetworkBehaviour
     // Start is called before the first frame update
     void Start()
     {
-        HP = startingHP;
-        isDead = false;
-
-        defaultMeshBodyColor = bodyMeshRenderer.material.color;
+        if (!skipSettingStartValues)
+        {
+            HP = startingHP;
+            isDead = false;
+        }
 
         isInitialized = true;
     }
@@ -74,13 +77,17 @@ public class HPHandler : NetworkBehaviour
 
 
     //Function only called on the server
-    public void OnTakeDamage(string damageCausedByPlayerNickname)
+    public void OnTakeDamage(string damageCausedByPlayerNickname, byte damageAmount)
     {
         //Only take damage while alive
         if (isDead)
             return;
 
-        HP -= 1;
+        //Ensure that we cannot flip the byte as it can't handle minus values.
+        if (damageAmount > HP)
+            damageAmount = HP;
+
+        HP -= damageAmount;
 
         Debug.Log($"{Time.time} {transform.name} took damage got {HP} left ");
 

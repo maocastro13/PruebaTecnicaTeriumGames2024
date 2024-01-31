@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Fusion;
 using TMPro;
+using UnityEngine.SceneManagement;
 
 public class NetworkPlayer : NetworkBehaviour, IPlayerLeft
 {
@@ -13,10 +14,16 @@ public class NetworkPlayer : NetworkBehaviour, IPlayerLeft
     [Networked(OnChanged = nameof(OnNickNameChanged))]
     public NetworkString<_16> nickName { get; set; }
 
+    // Remote Client Token Hash
+    [Networked] public int token { get; set; }
+
     bool isPublicJoinMessageSent = false;
 
     public LocalCameraHandler localCameraHandler;
     public GameObject localUI;
+
+    //Camera mode
+    public bool is3rdPersonCamera { get; set; }
 
     //Other components
     NetworkInGameMessages networkInGameMessages;
@@ -26,45 +33,77 @@ public class NetworkPlayer : NetworkBehaviour, IPlayerLeft
         networkInGameMessages = GetComponent<NetworkInGameMessages>();
     }
 
-// Start is called before the first frame update
-void Start()
+    // Start is called before the first frame update
+    void Start()
     {
 
     }
 
     public override void Spawned()
     {
+        bool isReadyScene = SceneManager.GetActiveScene().name == "Ready";
+
         if (Object.HasInputAuthority)
         {
             Local = this;
 
-            //Sets the layer of the local players model
-            Utils.SetRenderLayerInChildren(playerModel, LayerMask.NameToLayer("LocalPlayerModel"));
+            if (isReadyScene)
+            {
+                Camera.main.transform.position = new Vector3(transform.position.x, Camera.main.transform.position.y, Camera.main.transform.position.z);
 
-            //Disable main camera
-            Camera.main.gameObject.SetActive(false);
+                //Disable local camera
+                localCameraHandler.gameObject.SetActive(false);
 
-            RPC_SetNickName(PlayerPrefs.GetString("PlayerNickname"));
+                //Disable UI for local player
+                localUI.SetActive(false);
+
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+            }
+            else
+            {
+                //Sets the layer of the local players model
+                Utils.SetRenderLayerInChildren(playerModel, LayerMask.NameToLayer("LocalPlayerModel"));
+
+                //Disable main camera
+                if (Camera.main != null)
+                    Camera.main.gameObject.SetActive(false);
+
+                //Enable the local camera
+                localCameraHandler.localCamera.enabled = true;
+                localCameraHandler.gameObject.SetActive(true);
+
+
+                //Detach camera if enabled
+                localCameraHandler.transform.parent = null;
+
+                //Enable UI for local player
+                localUI.SetActive(true);
+
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
+
+            RPC_SetNickName(GameManager.instance.playerNickName);
+
+            //Disable the nick name for the local player.
+            playerNickNameTM.gameObject.SetActive(false);
 
             Debug.Log("Spawned local player");
         }
         else
         {
-            //Disable the camera if we are not the local player
-            Camera localCamera = GetComponentInChildren<Camera>();
-            localCamera.enabled = false;
-
-            //Only 1 audio listner is allowed in the scene so disable remote players audio listner
-            AudioListener audioListener = GetComponentInChildren<AudioListener>();
-            audioListener.enabled = false;
+            //Disable the local camera for remote players
+            localCameraHandler.localCamera.enabled = false;
+            localCameraHandler.gameObject.SetActive(false);
 
             //Disable UI for remote player
             localUI.SetActive(false);
 
-            Debug.Log("Spawned remote player");
+            Debug.Log($"{Time.time} Spawned remote player");  
         }
 
-        //Set the player as a player object
+        //Set the Player as a player object
         Runner.SetPlayerObject(Object.InputAuthority, Object);
 
         //Make it easier to tell which player is which.
@@ -80,7 +119,7 @@ void Start()
                 if (playerLeftNetworkObject == Object)
                     Local.GetComponent<NetworkInGameMessages>().SendInGameRPCMessage(playerLeftNetworkObject.GetComponent<NetworkPlayer>().nickName.ToString(), "left");
             }
-               
+
         }
 
 
@@ -108,11 +147,48 @@ void Start()
         Debug.Log($"[RPC] SetNickName {nickName}");
         this.nickName = nickName;
 
-        if(!isPublicJoinMessageSent)
+        if (!isPublicJoinMessageSent)
         {
             networkInGameMessages.SendInGameRPCMessage(nickName, "joined");
 
             isPublicJoinMessageSent = true;
+        }
+    }
+
+    [Rpc(RpcSources.InputAuthority, RpcTargets.StateAuthority)]
+    public void RPC_SetCameraMode(bool is3rdPersonCamera, RpcInfo info = default)
+    {
+        Debug.Log($"[RPC] SetCameraMode. is3rdPersonCamera  {is3rdPersonCamera}");
+
+        this.is3rdPersonCamera = is3rdPersonCamera;
+    }
+
+    void OnDestroy()
+    {
+        //Get rid of the local camera if we get destroyed as a new one will be spawned with the new Network player
+        if (localCameraHandler != null)
+            Destroy(localCameraHandler.gameObject);
+
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
+    void OnEnable()
+    {
+        SceneManager.sceneLoaded += OnSceneLoaded;
+    }
+
+    void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        Debug.Log($"{Time.time} OnSceneLoaded: " + scene.name);
+
+        if (scene.name != "Ready")
+        {
+            //Tell the host that we need to perform the spawned code manually. 
+            if (Object.HasStateAuthority && Object.HasInputAuthority)
+                Spawned();
+
+            if (Object.HasStateAuthority)
+                GetComponent<CharacterMovementHandler>().RequestRespawn();
         }
     }
 }
