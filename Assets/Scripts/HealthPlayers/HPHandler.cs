@@ -10,7 +10,7 @@ public class HPHandler : NetworkBehaviour
     byte HP { get; set; }
 
     [Networked(OnChanged = nameof(OnStateChanged))]
-    public bool IsDead { get; set; }
+    public bool isDead { get; set; }
 
     bool isInitialized = false;
 
@@ -28,18 +28,22 @@ public class HPHandler : NetworkBehaviour
     //Other components
     HitboxRoot hitboxRoot;
     CharacterMovementHandler characterMovementHandler;
+    NetworkInGameMessages networkInGameMessages;
+    NetworkPlayer networkPlayer;
 
     private void Awake()
     {
         characterMovementHandler = GetComponent<CharacterMovementHandler>();
         hitboxRoot = GetComponentInChildren<HitboxRoot>();
+        networkInGameMessages = GetComponent<NetworkInGameMessages>();
+        networkPlayer = GetComponent<NetworkPlayer>();
     }
 
     // Start is called before the first frame update
     void Start()
     {
         HP = startingHP;
-        IsDead = false;
+        isDead = false;
 
         defaultMeshBodyColor = bodyMeshRenderer.material.color;
 
@@ -57,7 +61,7 @@ public class HPHandler : NetworkBehaviour
 
         bodyMeshRenderer.material.color = defaultMeshBodyColor;
 
-        if (Object.HasInputAuthority && !IsDead)
+        if (Object.HasInputAuthority && !isDead)
             uiOnHitImage.color = new Color(0, 0, 0, 0);
     }
 
@@ -70,10 +74,10 @@ public class HPHandler : NetworkBehaviour
 
 
     //Function only called on the server
-    public void OnTakeDamage()
+    public void OnTakeDamage(string damageCausedByPlayerNickname)
     {
         //Only take damage while alive
-        if (IsDead)
+        if (isDead)
             return;
 
         HP -= 1;
@@ -83,11 +87,13 @@ public class HPHandler : NetworkBehaviour
         //Player died
         if (HP <= 0)
         {
+            networkInGameMessages.SendInGameRPCMessage(damageCausedByPlayerNickname, $"Killed <b>{networkPlayer.nickName.ToString()}</b>");
+
             Debug.Log($"{Time.time} {transform.name} died");
 
             StartCoroutine(ServerReviveCO());
 
-            IsDead = true;
+            isDead = true;
         }
     }
 
@@ -117,14 +123,14 @@ public class HPHandler : NetworkBehaviour
 
     static void OnStateChanged(Changed<HPHandler> changed)
     {
-        Debug.Log($"{Time.time} OnStateChanged isDead {changed.Behaviour.IsDead}");
+        Debug.Log($"{Time.time} OnStateChanged isDead {changed.Behaviour.isDead}");
 
-        bool isDeadCurrent = changed.Behaviour.IsDead;
+        bool isDeadCurrent = changed.Behaviour.isDead;
 
         //Load the old value
         changed.LoadOld();
 
-        bool isDeadOld = changed.Behaviour.IsDead;
+        bool isDeadOld = changed.Behaviour.isDead;
 
         //Handle on death for the player. Also check if the player was dead but is now alive in that case revive the player.
         if (isDeadCurrent)
@@ -160,6 +166,6 @@ public class HPHandler : NetworkBehaviour
     {
         //Reset variables
         HP = startingHP;
-        IsDead = false;
+        isDead = false;
     }
 }

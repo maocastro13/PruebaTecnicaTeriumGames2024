@@ -35,6 +35,7 @@ public class Spawner : MonoBehaviour, INetworkRunnerCallbacks
 
         if (characterInputHandler != null)
             input.Set(characterInputHandler.GetNetworkInput());
+
     }
 
     public void OnConnectedToServer(NetworkRunner runner) { Debug.Log("OnConnectedToServer"); }
