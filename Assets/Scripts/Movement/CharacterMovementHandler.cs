@@ -5,43 +5,48 @@ using Fusion;
 
 public class CharacterMovementHandler : NetworkBehaviour
 {
-    Vector2 viewInput;
-
-    //Rotation
-    float cameraRotationX = 0;
+    bool isRespawnRequested = false;
 
     //Other components
     NetworkCharacterControllerPrototypeCustom networkCharacterControllerPrototypeCustom;
-    Camera localCamera;
+    HPHandler hpHandler;
 
     private void Awake()
     {
         networkCharacterControllerPrototypeCustom = GetComponent<NetworkCharacterControllerPrototypeCustom>();
-        localCamera = GetComponentInChildren<Camera>();
+        hpHandler = GetComponent<HPHandler>();
     }
 
     // Start is called before the first frame update
     void Start()
     {
-        
-    }
-
-    // Update is called once per frame
-    void Update()
-    {
-        cameraRotationX += viewInput.y * Time.deltaTime * networkCharacterControllerPrototypeCustom.viewUpDownRotationSpeed;
-        cameraRotationX = Mathf.Clamp(cameraRotationX, -90, 90);
-
-        //localCamera.transform.localRotation = Quaternion.Euler(cameraRotationX, 0, 0);
     }
 
     public override void FixedUpdateNetwork()
     {
+        if (Object.HasStateAuthority)
+        {
+            if (isRespawnRequested)
+            {
+                Respawn();
+                return;
+            }
+
+            //Don't update the clients position when they are dead
+            if (hpHandler.IsDead)
+                return;
+        }
+
         //Get the input from the network
         if (GetInput(out NetworkInputData networkInputData))
         {
-            //Rotate the view
-            networkCharacterControllerPrototypeCustom.Rotate(networkInputData.rotationInput);
+            //Rotate the transform according to the client aim vector
+            transform.forward = networkInputData.aimForwardVector;
+
+            //Cancel out rotation on X axis as we don't want our character to tilt
+            Quaternion rotation = transform.rotation;
+            rotation.eulerAngles = new Vector3(0, rotation.eulerAngles.y, rotation.eulerAngles.z);
+            transform.rotation = rotation;
 
             //Move
             Vector3 moveDirection = transform.forward * networkInputData.movementInput.y + transform.right * networkInputData.movementInput.x;
@@ -52,11 +57,44 @@ public class CharacterMovementHandler : NetworkBehaviour
             //Jump
             if(networkInputData.isJumpPressed)
                 networkCharacterControllerPrototypeCustom.Jump();
+
+            //Check if we've fallen off the world.
+            CheckFallRespawn();
+        }
+
+    }
+
+    void CheckFallRespawn()
+    {
+        if (transform.position.y < -12)
+        {
+            if (Object.HasStateAuthority)
+            {
+                Debug.Log($"{Time.time} Respawn due to fall outside of map at position {transform.position}");
+
+                Respawn();
+            }
+
         }
     }
 
-    public void SetViewInputVector(Vector2 viewInput)
+    public void RequestRespawn()
     {
-        this.viewInput = viewInput;
+        isRespawnRequested = true;
     }
+
+    void Respawn()
+    {
+        networkCharacterControllerPrototypeCustom.TeleportToPosition(Utils.GetRandomSpawnPoint());
+
+        hpHandler.OnRespawned();
+
+        isRespawnRequested = false;
+    }
+
+    public void SetCharacterControllerEnabled(bool isEnabled)
+    {
+        networkCharacterControllerPrototypeCustom.Controller.enabled = isEnabled;
+    }
+
 }
